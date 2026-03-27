@@ -12,7 +12,7 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// ── CORS — allow requests from the React dashboard (Vite dev server) ────────
+// ── CORS and CSP — allow dashboard access and permit 'eval' for dev/libraries ────────
 app.use((req, res, next) => {
     const allowed = ['http://localhost:5173', 'http://127.0.0.1:5173'];
     const origin = req.headers.origin;
@@ -22,6 +22,19 @@ app.use((req, res, next) => {
     res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
     res.setHeader('Access-Control-Allow-Credentials', 'true');
+
+    // ── CSP — allows face-api.js (eval), Tailwind (inline), and CDNs ──────────
+    // Note: 'unsafe-eval' is needed for face-api.js/TensorFlow.js and Vite HMR
+    res.setHeader('Content-Security-Policy', 
+        "default-src 'self'; " +
+        "script-src 'self' 'unsafe-eval' 'unsafe-inline' https://cdn.tailwindcss.com https://cdn.jsdelivr.net https://fonts.googleapis.com; " +
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.tailwindcss.com; " +
+        "font-src 'self' https://fonts.gstatic.com; " +
+        "img-src 'self' data: blob:; " +
+        "connect-src 'self' http://localhost:5173 http://127.0.0.1:5173 http://127.0.0.1:8545 ws://localhost:5173 http://localhost:8080 http://localhost:8001 http://localhost:8002; " +
+        "frame-src 'self';"
+    );
+
     if (req.method === 'OPTIONS') return res.sendStatus(204);
     next();
 });
@@ -159,9 +172,7 @@ app.get("/profile", authorizeUser, (_req, res) => res.sendFile(path.join(__dirna
 // AUTHENTICATION
 // ────────────────────────────────────────────────────────────────────────
 
-app.get('/api/me', authorizeUser, (req, res) => {
-    res.json(req.user);
-});
+// Redundant /api/me removed to use database-backed version below
 
 app.get('/api/my-receipts', authorizeUser, async (req, res) => {
     try {
@@ -274,43 +285,47 @@ function calculateEuclideanDistance(desc1, desc2) {
 
 // ── Server-Side Blockchain Transaction Setup ─────────────────────────────
 const { ethers } = require("ethers");
-let contract = null;
-let masterWallet = null;
+let lastDeployedAddress = null;
 
-async function setupBlockchain() {
+async function syncBlockchain() {
     try {
         const contractPath = path.join(__dirname, "src/contract.json");
-        if (!fs.existsSync(contractPath)) return console.log("⏳ Contract not deployed yet. Skipping blockchain setup.");
+        if (!fs.existsSync(contractPath)) return;
 
         const contractData = JSON.parse(fs.readFileSync(contractPath, "utf8"));
+        
+        // If contract is same, skip re-init
+        if (contractData.address === lastDeployedAddress && contract) return;
 
-        // Use the live RPC URL from .env if available, otherwise fallback to local Hardhat
         const rpcUrl = process.env.ETH_RPC_URL || "http://127.0.0.1:8545";
         const provider = new ethers.JsonRpcProvider(rpcUrl);
-
-        // Strictly require MASTER_WALLET_PRIVATE_KEY from .env
         const privateKey = process.env.MASTER_WALLET_PRIVATE_KEY;
+
         if (!privateKey) {
-            console.error("❌  CRITICAL: MASTER_WALLET_PRIVATE_KEY is missing from .env");
-            console.error("    The server cannot sign voting transactions without this key. Please add it to your .env file.");
+            console.error("❌  MASTER_WALLET_PRIVATE_KEY missing from .env");
             return;
         }
 
         masterWallet = new ethers.Wallet(privateKey, provider);
-
         contract = new ethers.Contract(contractData.address, contractData.abi, masterWallet);
-        console.log("✅  Server-side Web3 Wallet Ready:", masterWallet.address);
+        lastDeployedAddress = contractData.address;
+
+        console.log("🔄  Blockchain Contract Synced:", lastDeployedAddress);
     } catch (e) {
-        console.error("❌  Failed to setup server-side blockchain:", e);
+        console.error("❌  Failed to sync blockchain:", e.message);
     }
 }
-setupBlockchain();
+
+// Initial sync
+syncBlockchain();
 
 // ── POST /api/cast-vote — Biometric Vote Casting ─────────────────────────
 app.post("/api/cast-vote", authorizeUser, async (req, res) => {
     const { electionId, candidateId, face_embedding } = req.body;
     const voterId = req.user.id || req.user.voter_id;
 
+    // Ensure we are using the latest deployment
+    await syncBlockchain();
     if (!contract || !masterWallet) return res.status(500).json({ error: "Server blockchain connection not ready" });
     if (!electionId || !candidateId || !face_embedding) return res.status(400).json({ error: "Missing required voting parameters." });
 
@@ -443,8 +458,10 @@ app.post("/api/voters/bulk-csv", authorizeUser, async (req, res) => {
     const lines = csv.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
     if (lines.length < 2) return res.status(400).json({ message: "CSV must have a header row and at least one data row" });
 
-    // Validate header
-    const header = lines[0].toLowerCase().split(",").map(h => h.trim());
+    // Robust header parsing: Strip BOM, trim whitespace, and lowercase
+    const headerLine = lines[0].replace(/^\uFEFF/, '').toLowerCase();
+    const header = headerLine.split(",").map(h => h.trim());
+    
     const required = ["voter_id", "full_name", "password"];
     const missing = required.filter(f => !header.includes(f));
     if (missing.length) return res.status(400).json({ message: `Missing CSV columns: ${missing.join(", ")}` });
@@ -452,15 +469,21 @@ app.post("/api/voters/bulk-csv", authorizeUser, async (req, res) => {
     const idxOf = col => header.indexOf(col);
     const results = { imported: 0, skipped: 0, errors: [] };
 
+    console.log(`[BULK VOTERS] Starting import of ${lines.length - 1} rows...`);
+
     for (let i = 1; i < lines.length; i++) {
         const cols = lines[i].split(",").map(c => c.trim());
         const voter_id   = cols[idxOf("voter_id")]   || "";
         const full_name  = cols[idxOf("full_name")]  || "";
         const password   = cols[idxOf("password")]   || "";
         const email      = idxOf("email")      >= 0 ? cols[idxOf("email")]      || null : null;
-        const booth_id   = idxOf("booth_id")   >= 0 ? cols[idxOf("booth_id")]   || null : null;
+        const booth_id   = idxOf("booth_id")   >= 0 ? cols[idxOf("booth_id")]   || null : "DEFAULT";
 
-        if (!voter_id || !password) { results.skipped++; results.errors.push(`Row ${i + 1}: voter_id and password required`); continue; }
+        if (!voter_id || !password) { 
+            results.skipped++; 
+            results.errors.push(`Row ${i + 1}: voter_id and password required`); 
+            continue; 
+        }
 
         try {
             const hashed = await bcrypt.hash(password, 12);
@@ -473,15 +496,17 @@ app.post("/api/voters/bulk-csv", authorizeUser, async (req, res) => {
                        email           = EXCLUDED.email,
                        booth_id        = EXCLUDED.booth_id,
                        status          = 'approved'`,
-                [voter_id, hashed, full_name || null, email, booth_id || "DEFAULT"]
+                [voter_id, hashed, full_name || null, email, booth_id]
             );
             results.imported++;
         } catch (err) {
             results.skipped++;
             results.errors.push(`Row ${i + 1} (${voter_id}): ${err.message}`);
+            console.error(`[BULK VOTERS] Error at row ${i+1}:`, err.message);
         }
     }
 
+    console.log(`[BULK VOTERS] Finished: ${results.imported} imported, ${results.skipped} skipped.`);
     res.json({ success: true, ...results });
 });
 
@@ -492,12 +517,18 @@ app.post("/api/candidates/bulk-csv", authorizeUser, async (req, res) => {
     if (req.user.role !== "admin") return res.status(403).json({ message: "Forbidden" });
     const { csv, electionId } = req.body;
     if (!csv || !electionId) return res.status(400).json({ message: "csv and electionId fields required" });
+
+    // Always check for latest contract deployment
+    await syncBlockchain();
     if (!contract || !masterWallet) return res.status(503).json({ message: "Blockchain not ready — restart server after deployment" });
 
     const lines = csv.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
     if (lines.length < 2) return res.status(400).json({ message: "CSV must have a header row and at least one data row" });
 
-    const header = lines[0].toLowerCase().split(",").map(h => h.trim());
+    // Robust header parsing: Strip BOM, trim whitespace, and lowercase
+    const headerLine = lines[0].replace(/^\uFEFF/, '').toLowerCase();
+    const header = headerLine.split(",").map(h => h.trim());
+    
     if (!header.includes("name") || !header.includes("party")) {
         return res.status(400).json({ message: "CSV must have 'name' and 'party' columns" });
     }
@@ -506,25 +537,41 @@ app.post("/api/candidates/bulk-csv", authorizeUser, async (req, res) => {
     const idxParty = header.indexOf("party");
     const results  = { imported: 0, skipped: 0, errors: [] };
 
-    // Fetch nonce once and increment manually to avoid reuse on fast local nodes
-    let nonce = await masterWallet.provider.getTransactionCount(masterWallet.address, "latest");
+    console.log(`[BULK CANDIDATES] Starting import for election ${electionId}...`);
+
+    // Fetch nonce once for the start of the batch
+    let nonce = await masterWallet.provider.getTransactionCount(masterWallet.address, "pending");
 
     for (let i = 1; i < lines.length; i++) {
-        const cols  = lines[i].split(",").map(c => c.trim());
+        const rowContent = lines[i];
+        const cols = rowContent.split(",").map(c => c.trim());
         const name  = cols[idxName]  || "";
         const party = cols[idxParty] || "";
-        if (!name || !party) { results.skipped++; results.errors.push(`Row ${i + 1}: name and party required`); continue; }
+        
+        if (!name || !party) { 
+            results.skipped++; 
+            results.errors.push(`Row ${i + 1}: name and party required`); 
+            continue; 
+        }
 
         try {
+            console.log(`[BULK CANDIDATES] Row ${i+1}: Adding ${name} (${party})...`);
+            // We use 'pending' nonce and manually increment to avoid issues on fast chains
+            // await tx.wait() ensures we don't spam too fast but manual nonce keeps it sequential
             const tx = await contract.addCandidate(electionId, name, party, { nonce: nonce++ });
             await tx.wait();
+            
+            console.log(`[BULK CANDIDATES] Row ${i+1}: Success (Tx: ${tx.hash})`);
             results.imported++;
         } catch (err) {
             results.skipped++;
-            results.errors.push(`Row ${i + 1} (${name}): ${err.message.split("(")[0].trim()}`);
+            const simpleErr = (err.reason || err.message || "Unknown error").split("(")[0].trim();
+            results.errors.push(`Row ${i + 1} (${name}): ${simpleErr}`);
+            console.error(`[BULK CANDIDATES] Row ${i+1} Error:`, simpleErr);
         }
     }
 
+    console.log(`[BULK CANDIDATES] Finished: ${results.imported} imported, ${results.skipped} skipped.`);
     res.json({ success: true, ...results });
 });
 
@@ -616,6 +663,7 @@ app.get("/api/receipt/:tx_hash", async (req, res) => {
     const { tx_hash } = req.params;
     
     try {
+        await syncBlockchain();
         if (!contract || !masterWallet) {
             return res.status(503).json({ error: "Blockchain service not ready" });
         }

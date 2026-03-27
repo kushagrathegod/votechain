@@ -77,7 +77,7 @@ function BoothManagement() {
       </div>
 
       {/* Live Voter Count Per Booth */}
-      <div className="bg-white border border-surface-200 rounded-xl p-6 shadow-card">
+      <div className="premium-card p-6">
         <div className="flex items-center justify-between mb-5">
           <h2 className="text-lg font-medium text-surface-800">Voter Distribution</h2>
           <span className="text-sm font-medium text-surface-500">{totalVoters} total registered</span>
@@ -126,7 +126,7 @@ function BoothManagement() {
       </div>
 
       {/* ML Congestion Forecast */}
-      <div className="bg-white border border-surface-200 rounded-xl p-6 shadow-card">
+      <div className="premium-card p-6">
         <div className="flex items-center justify-between mb-5">
           <h2 className="text-lg font-medium text-surface-800">
             Congestion Forecast —{' '}

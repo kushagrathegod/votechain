@@ -40,7 +40,6 @@ async function main() {
     );
 
     console.log("\n Setup complete! Start the server with:  npm run frontend");
-    console.log(" Open http://localhost:8080/admin to create your first election.\n");
 }
 
 main().catch((err) => {

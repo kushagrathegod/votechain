@@ -110,22 +110,22 @@ function Voters() {
 
       {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="bg-white border border-surface-200 rounded-xl p-5 shadow-card">
+        <div className="premium-card p-6">
           <p className="text-sm text-surface-500">Total Voters</p>
           <p className="text-3xl font-semibold text-surface-800 mt-1">{voters.length}</p>
         </div>
-        <div className="bg-white border border-surface-200 rounded-xl p-5 shadow-card">
+        <div className="premium-card p-6">
           <p className="text-sm text-surface-500">Approved</p>
           <p className="text-3xl font-semibold text-green-600 mt-1">{approvedCount}</p>
         </div>
-        <div className="bg-white border border-surface-200 rounded-xl p-5 shadow-card">
+        <div className="premium-card p-6">
           <p className="text-sm text-surface-500">Pending</p>
           <p className="text-3xl font-semibold text-amber-600 mt-1">{pendingCount}</p>
         </div>
       </div>
 
       {/* CSV Import */}
-      <div className="bg-white border border-surface-200 rounded-xl p-6 shadow-card">
+      <div className="premium-card p-6">
         <h2 className="text-lg font-medium text-surface-800 mb-4">Bulk Import</h2>
         <p className="text-sm text-surface-500 mb-4">
           Required columns: <code className="bg-surface-100 px-1.5 py-0.5 rounded text-primary-600">voter_id, full_name, password</code>
@@ -171,7 +171,7 @@ function Voters() {
       </div>
 
       {/* Filters */}
-      <div className="bg-white border border-surface-200 rounded-xl p-6 shadow-card">
+      <div className="premium-card p-6">
         <div className="flex flex-wrap gap-4 items-center justify-between mb-6">
           <div className="flex items-center gap-2">
             {['all', 'approved', 'pending'].map(f => (

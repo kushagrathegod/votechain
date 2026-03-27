@@ -172,7 +172,7 @@ function Elections() {
 
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
         {/* Create Election Form */}
-        <div className="lg:col-span-2 bg-white border border-surface-200 rounded-xl p-6 shadow-card h-fit">
+        <div className="lg:col-span-2 premium-card p-6 h-fit">
           <h2 className="text-lg font-medium text-surface-800 mb-5">Create Session</h2>
 
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -244,7 +244,7 @@ function Elections() {
         </div>
 
         {/* Elections List */}
-        <div className="lg:col-span-3 bg-white border border-surface-200 rounded-xl p-6 shadow-card">
+        <div className="lg:col-span-3 premium-card p-6">
           <div className="flex items-center justify-between mb-5">
             <h2 className="text-lg font-medium text-surface-800">Active Sessions</h2>
             <button

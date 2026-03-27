@@ -42,7 +42,7 @@ function Receipt() {
       <h1 className="text-3xl font-bold text-surface-800 animate-fadeIn">Transaction Receipt</h1>
 
       {/* Search Box */}
-      <div className="bg-white border border-surface-200 rounded-xl p-6 shadow-card animate-fadeIn delay-100">
+      <div className="premium-card p-6 animate-fadeIn delay-100">
         <label className="block text-sm font-medium text-surface-700 mb-3">
           Transaction Hash (0x...)
         </label>

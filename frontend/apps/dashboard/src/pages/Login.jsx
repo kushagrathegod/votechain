@@ -55,7 +55,7 @@ function Login() {
         </div>
 
         {/* Card */}
-        <div className="bg-white border border-surface-200 rounded-xl p-6 shadow-card">
+        <div className="premium-card p-6">
           <h2 className="text-lg font-medium text-surface-800 mb-5">Sign in</h2>
 
           <form onSubmit={handleLogin} className="space-y-4">

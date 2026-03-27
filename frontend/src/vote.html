@@ -141,7 +141,7 @@
             // Identity info
             const meRes = await fetch('/api/me', { headers: { 'Authorization': `Bearer ${voterToken}` } });
             const meData = await meRes.json();
-            document.getElementById('voterBadge').textContent = '👤 ' + meData.full_name;
+            document.getElementById('voterBadge').textContent = '👤 ' + (meData.full_name || meData.name || 'Voter');
 
             // Load sessions
             const ids = await contract.methods.getElectionIds().call();

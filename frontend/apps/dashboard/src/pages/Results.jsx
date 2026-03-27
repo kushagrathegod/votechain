@@ -218,7 +218,7 @@ function Results() {
           )}
 
           {/* Results Chart */}
-          <div className="bg-white border border-surface-200 rounded-xl p-6 shadow-card">
+          <div className="premium-card p-6">
             <h2 className="text-lg font-medium text-surface-800 mb-6">Vote Distribution</h2>
 
             <div className="space-y-5">

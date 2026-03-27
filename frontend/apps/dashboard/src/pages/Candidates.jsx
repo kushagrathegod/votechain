@@ -25,37 +25,44 @@ function Candidates() {
   const [csvUploading, setCsvUploading] = useState(false)
   const csvInputRef = useRef(null)
 
+  const initBlockchain = useCallback(async (isRefresh = false) => {
+    try {
+      const resp = await fetch(`${config.backendUrl}/contract.json?t=${Date.now()}`)
+      if (!resp.ok) return setConnectionStatus('error')
+      const info = await resp.json()
+      if (!window.ethereum) return setConnectionStatus('no-wallet')
+
+      const w3 = new Web3(window.ethereum)
+      const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' })
+      const c = new w3.eth.Contract(info.abi, info.address)
+
+      setAccount(accounts[0])
+      setContract(c)
+      setConnectionStatus('connected')
+
+      // Load elections
+      const ids = await c.methods.getElectionIds().call()
+      const electionData = []
+      for (const id of [...ids].reverse()) {
+        const details = await c.methods.getElection(id).call()
+        electionData.push({ id, name: details[1] })
+      }
+      setElections(electionData)
+      
+      // Only auto-select if nothing is selected yet, or if we were refreshed manually
+      if (electionData.length > 0 && (!activeElection || isRefresh)) {
+        if (!activeElection || !electionData.find(e => e.id === activeElection)) {
+           setActiveElection(electionData[0].id)
+        }
+      }
+    } catch (err) {
+      console.error('Init failed:', err)
+      setConnectionStatus('error')
+    }
+  }, [activeElection]);
+
   // Initialize Web3
   useEffect(() => {
-    async function initBlockchain() {
-      try {
-        const resp = await fetch(`${config.backendUrl}/contract.json?t=${Date.now()}`)
-        if (!resp.ok) return setConnectionStatus('error')
-        const info = await resp.json()
-        if (!window.ethereum) return setConnectionStatus('no-wallet')
-
-        const w3 = new Web3(window.ethereum)
-        const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' })
-        const c = new w3.eth.Contract(info.abi, info.address)
-
-        setAccount(accounts[0])
-        setContract(c)
-        setConnectionStatus('connected')
-
-        // Load elections
-        const ids = await c.methods.getElectionIds().call()
-        const electionData = []
-        for (const id of [...ids].reverse()) {
-          const details = await c.methods.getElection(id).call()
-          electionData.push({ id, name: details[1] })
-        }
-        setElections(electionData)
-        if (electionData.length > 0) setActiveElection(electionData[0].id)
-      } catch (err) {
-        console.error('Init failed:', err)
-        setConnectionStatus('error')
-      }
-    }
     initBlockchain()
   }, [])
 
@@ -202,17 +209,25 @@ function Candidates() {
 
         if (!res.ok) throw new Error(data.message || 'Upload failed')
 
-        let msg = `Imported ${data.imported || 0} candidates.`
-        if (data.skipped > 0) msg += ` Skipped ${data.skipped}.`
+        let msg = `Successfully imported ${data.imported || 0} candidates.`;
+        if (data.skipped > 0) {
+          msg += ` Skipped ${data.skipped} rows due to errors.`;
+        }
         
-        setCsvFile(null)
-        if (csvInputRef.current) csvInputRef.current.value = ''
-        loadCandidates()
+        setCsvFile(null);
+        if (csvInputRef.current) csvInputRef.current.value = '';
+        
+        // Always refresh to show what WAS imported
+        loadCandidates();
         
         if (data.errors && data.errors.length > 0) {
-          setMessage({ type: 'success', text: msg + ` Errors: ${data.errors[0]}` })
+          // Show first error and count of others
+          const firstErr = data.errors[0];
+          const others = data.errors.length - 1;
+          const fullMsg = others > 0 ? `${msg} (e.g., ${firstErr} ...and ${others} more)` : `${msg} (${firstErr})`;
+          setMessage({ type: data.imported > 0 ? 'success' : 'error', text: fullMsg });
         } else {
-          setMessage({ type: 'success', text: msg })
+          setMessage({ type: 'success', text: msg });
         }
       } catch (err) {
         setMessage({ type: 'error', text: err.message })
@@ -255,7 +270,7 @@ function Candidates() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Add Candidate Form */}
-        <div className="bg-white border border-surface-200 rounded-xl p-6 shadow-card h-fit">
+        <div className="premium-card p-6 h-fit">
           <h2 className="text-lg font-medium text-surface-800 mb-5">Add Candidate</h2>
 
           <form onSubmit={handleAdd} className="space-y-4">
@@ -343,16 +358,19 @@ function Candidates() {
         </div>
 
         {/* Candidates List */}
-        <div className="lg:col-span-2 bg-white border border-surface-200 rounded-xl p-6 shadow-card">
+        <div className="lg:col-span-2 premium-card p-6">
           <div className="flex items-center justify-between mb-5">
             <h2 className="text-lg font-medium text-surface-800">
               Nominees {activeElection && <span className="text-primary-600">· {activeElection}</span>}
             </h2>
             <button
-              onClick={loadCandidates}
-              className="text-sm text-surface-500 hover:text-primary-600 transition-colors"
+              onClick={() => {
+                initBlockchain(true); // Full re-sync including contract address
+                loadCandidates();
+              }}
+              className="text-sm text-surface-500 hover:text-primary-600 transition-colors flex items-center gap-1.5"
             >
-              Refresh
+              <span>🔄</span> Refresh
             </button>
           </div>
 
